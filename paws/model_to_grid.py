@@ -45,6 +45,41 @@ def class_grid_to_medium_grid(cls_grid:np.ndarray,lookup_dict:dict,base_sound_sp
     
     return medium
 
+
+def class_grid_to_medium_grid_3d(cls_grid:np.ndarray,lookup_dict:dict,base_sound_speed=343,base_density=100,base_alpha_coef=0.75):
+
+    Nx,Ny,Nz = cls_grid.shape
+
+    #define the medium
+    sound_speed_grid = np.ones((Nx, Ny, Nz), dtype=float) * base_sound_speed
+    density_grid = np.ones((Nx, Ny, Nz), dtype=float) * base_density
+    alpha_grid = np.ones((Nx, Ny, Nz), dtype=float) * base_alpha_coef
+    
+    for x in range(Nx):
+        for y in range(Ny):
+            for z in range(Nz):
+            
+                #if not defined
+                # print(cls_grid[x][y])
+                if cls_grid[x][y][z] == 0:
+                    continue
+                
+                density,sound_speed,alpha = lookup_dict[cls_grid[x][y][z]]
+
+                sound_speed_grid[x][y][z] = sound_speed
+                density_grid[x][y][z] = density
+                alpha_grid[x][y][z] = alpha
+            
+    medium = kWaveMedium(sound_speed=sound_speed_grid, density=density_grid, alpha_coeff=alpha_grid, alpha_power=1.5,absorbing=True,stokes=True)
+    
+    return medium
+
+def extend_2d_to_3d(cls_grid):
+
+
+    return cls_grid
+
+
 def make_medium_3d(sound_speed_grid,density_grid,alpha_grid):
     
     medium = kWaveMedium(sound_speed=sound_speed_grid, density=density_grid, alpha_coeff=alpha_grid, alpha_power=1.5,absorbing=True,stokes=True)

@@ -11,7 +11,7 @@ from paws.room_generation import shoe_box_pipeline,polygon_pipeline
 
 from paws.data_to_mp4 import encode_tensor_to_video, encode_hdf5_to_video
 
-from paws.model_to_grid import make_source_2d, class_grid_to_medium_grid, make_sensor_2d, simulation_2d,sample_source_2d,make_sensor_3d,make_source_3d,simulation_3d,make_medium_3d
+from paws.model_to_grid import make_source_2d, class_grid_to_medium_grid, class_grid_to_medium_grid_3d, make_sensor_2d, simulation_2d,sample_source_2d,make_sensor_3d,make_source_3d,simulation_3d,make_medium_3d
 
 
 
@@ -123,8 +123,6 @@ def pipeline(args):
         plt.title('generated room')
         plt.savefig(os.path.join(data_dir,room_type + "_" + para_str + current_time + "_valid_mask.png"))
 
-        
-        quit()
         # # show demo of valid mask
         # plt.figure()
         # plt.imshow(np.squeeze(valid_mask), aspect='equal', cmap='gray')
@@ -226,19 +224,38 @@ def pipeline_3d(args):
     density_grid = np.ones((Nx, Ny, Nz), dtype=float) * 100
     alpha_grid = np.ones((Nx, Ny, Nz), dtype=float) * 0.75
     
+    
+    class_id_range = [1,9]
+    class_id_dict = {0:(100,330,0.75),      #air
+                        1:(1000,3700,0.75),      #wood
+                        2:(1440,4000,0.75),     #concrete
+                        3:(1000,330,0.75),       #frabric
+                        4:(2400,5300,0.75),    #china
+                        5:(1390,2200,0.75),     #plastic
+                        6:(2560,3810,0.75),     #stone
+                        7:(7700,5000,0.75),     #stell
+                        8:(4000,5600,0.75),     #glass
+                        9:(1000,2210,0.75),      #wax           
+                    }
+    
+    #get a normal shoebox room and extend to 3d(unfinished)
+    cls_grid,valid_mask,sample_ref = shoe_box_pipeline(Nx,Ny,0.1,0.1,8,10,class_id_range,[1,2,6])
+    medium_2d = class_grid_to_medium_grid(cls_grid,class_id_dict)
+    
     for x in range(Nx):
         for y in range(Ny):
             for z in range(Nz):
             
-                if  abs(x - 64) <= 3 or abs(y - 64) <= 3 or abs(z - 64) or abs(x - 192) <= 3 or abs(y - 192) <= 3 or abs(z - 192) <= 3:   
+                if  z <= 192 or z >= 64:   
                     
                     density,sound_speed,alpha = 2000,800,0.75
-                    sound_speed_grid[x][y][z] = sound_speed
-                    density_grid[x][y][z] = density
-                    alpha_grid[x][y][z] = alpha
+                    sound_speed_grid[x][y][z] = medium_2d.sound_speed[x][y]
+                    density_grid[x][y][z] = medium_2d.density[x][y]
+                    alpha_grid[x][y][z] = medium_2d.alpha_coeff[x][y]
     
     
     medium = make_medium_3d(sound_speed_grid,density_grid,alpha_grid)
+    
     
     save_filename_prefix = room_type 
 
