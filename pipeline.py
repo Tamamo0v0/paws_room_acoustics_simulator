@@ -6,16 +6,19 @@ import datetime
 import gc
 import math
 import argparse
+import json
+import h5py
 
 from paws.room_generation import shoe_box_pipeline,polygon_pipeline
 
 from paws.data_to_mp4 import encode_tensor_to_video, encode_hdf5_to_video
-
+from paws.ambisonic_rir_processing import hdf5_to_ambisonic
 from paws.model_to_grid import make_source_2d, class_grid_to_medium_grid, class_grid_to_medium_grid_3d, make_sensor_2d, simulation_2d,sample_source_2d,make_sensor_3d,make_source_3d,simulation_3d,make_medium_3d
 
 
-
-class_id_dict = {0:(100,330,0.75),      #air
+#class lookup table
+class_id_range = [1,9]
+class_id_dict = {0:(1.29,330,0.75),      #air
                  1:(1000,3700,0.75),      #wood
                  2:(1440,4000,0.75),     #concrete
                  3:(1000,330,0.75),       #frabric
@@ -53,6 +56,13 @@ def pipeline(args):
     save_dir = args.save_dir
     keep_temp = args.keep_temp
     
+    ambisonic_rir = args.ambisonic_rir
+    foa_mic_pos = json.loads(args.foa_mic_pos)
+    
+    if ambisonic_rir == True:
+        if len(foa_mic_pos) == 0:
+            assert("ambisonic rir is true but no mic position is provided")
+    
     #get base path
     if save_dir == None:
         save_dir = os.getcwd()
@@ -66,19 +76,19 @@ def pipeline(args):
     path_validation(data_dir)
     
     
-    #class lookup table
-    class_id_range = [1,9]
-    class_id_dict = {0:(100,330,0.75),      #air
-                        1:(1000,3700,0.75),      #wood
-                        2:(1440,4000,0.75),     #concrete
-                        3:(1000,330,0.75),       #frabric
-                        4:(2400,5300,0.75),    #china
-                        5:(1390,2200,0.75),     #plastic
-                        6:(2560,3810,0.75),     #stone
-                        7:(7700,5000,0.75),     #stell
-                        8:(4000,5600,0.75),     #glass
-                        9:(1000,2210,0.75),      #wax           
-                    }
+    # #class lookup table
+    # class_id_range = [1,9]
+    # class_id_dict = {0:(100,330,0.75),      #air
+    #                     1:(1000,3700,0.75),      #wood
+    #                     2:(1440,4000,0.75),     #concrete
+    #                     3:(1000,330,0.75),       #frabric
+    #                     4:(2400,5300,0.75),    #china
+    #                     5:(1390,2200,0.75),     #plastic
+    #                     6:(2560,3810,0.75),     #stone
+    #                     7:(7700,5000,0.75),     #stell
+    #                     8:(4000,5600,0.75),     #glass
+    #                     9:(1000,2210,0.75),      #wax           
+    #                 }
     
     
     #parameter string
@@ -140,15 +150,44 @@ def pipeline(args):
                         "density":medium.density}
         np.save(medium_save_pth,medium_data)
         
+        # make sensor
+        
+        if ambisonic_rir == False:
+            sensor = make_sensor_2d(np.ones([Nx,Ny],dtype=bool))
+        
+        # make sensor for ambisonic rir (will be warped as a function later)
+        else:
+            sensor_array = np.zeros([Nx,Ny],dtype=bool)
+            valid_mic = []
+            #for each foa mic, update sensor mask
+            for id,mic in enumerate(foa_mic_pos):
+                mic_x = mic[0]
+                mic_y = mic[1]
+                
+                sensor_array[mic_x-1][mic_y] = 1
+                sensor_array[mic_x+1][mic_y] = 1
+                sensor_array[mic_x][mic_y-1] = 1
+                sensor_array[mic_x][mic_y+1] = 1
+                
+                #if mic over lapping with wall/obstacle or out of bound, abadon it
+                try:
+                    if cls_grid[mic_x-1][mic_y] == 0 and\
+                        cls_grid[mic_x+1][mic_y] == 0 and\
+                        cls_grid[mic_x][mic_y-1] == 0 and\
+                        cls_grid[mic_x][mic_y+1] == 0:
+                        
+                        valid_mic.append(id)
+            
+                except:
+                    pass
+                        
+            sensor = make_sensor_2d(sensor_array)
 
         ##for each source
         for sample_id in range(source_n):
 
             save_filename_prefix = room_type + "_" + current_time + "_" + str(sample_id)
             # save_path = os.path.join(save_dir,save_filename)
-
-            
-            sensor = make_sensor_2d(np.ones([Nx,Ny],dtype=bool))
             
             source_x,source_y = sample_source_2d(valid_mask,cls_grid)
             source = make_source_2d(source_x,source_y,2,Nx,Ny,5)
@@ -169,8 +208,15 @@ def pipeline(args):
             hdf5_input_path = os.path.join(temp_file_dir,input_filename)
             hdf5_output_path = os.path.join(temp_file_dir,output_filename)
 
-            encode_hdf5_to_video(hdf5_output_path,data_dir,Nx,Ny,save_filename_prefix,down_sample_ratio)
-
+            if ambisonic_rir == False:
+                encode_hdf5_to_video(hdf5_output_path,data_dir,Nx,Ny,save_filename_prefix,down_sample_ratio)
+            
+            else:
+                # process output hdf5 for ambisonic rir
+                pass
+                hdf5_to_ambisonic(hdf5_output_path,data_dir,foa_mic_pos,valid_mic,save_filename_prefix)
+                
+            
             #optional: remove hdf5 file
             if not keep_temp:
                 os.remove(hdf5_input_path)
@@ -225,18 +271,18 @@ def pipeline_3d(args):
     alpha_grid = np.ones((Nx, Ny, Nz), dtype=float) * 0.75
     
     
-    class_id_range = [1,9]
-    class_id_dict = {0:(100,330,0.75),      #air
-                        1:(1000,3700,0.75),      #wood
-                        2:(1440,4000,0.75),     #concrete
-                        3:(1000,330,0.75),       #frabric
-                        4:(2400,5300,0.75),    #china
-                        5:(1390,2200,0.75),     #plastic
-                        6:(2560,3810,0.75),     #stone
-                        7:(7700,5000,0.75),     #stell
-                        8:(4000,5600,0.75),     #glass
-                        9:(1000,2210,0.75),      #wax           
-                    }
+    # class_id_range = [1,9]
+    # class_id_dict = {0:(100,330,0.75),      #air
+    #                     1:(1000,3700,0.75),      #wood
+    #                     2:(1440,4000,0.75),     #concrete
+    #                     3:(1000,330,0.75),       #frabric
+    #                     4:(2400,5300,0.75),    #china
+    #                     5:(1390,2200,0.75),     #plastic
+    #                     6:(2560,3810,0.75),     #stone
+    #                     7:(7700,5000,0.75),     #stell
+    #                     8:(4000,5600,0.75),     #glass
+    #                     9:(1000,2210,0.75),      #wax           
+    #                 }
     
     #get a normal shoebox room and extend to 3d(unfinished)
     cls_grid,valid_mask,sample_ref = shoe_box_pipeline(Nx,Ny,0.1,0.1,8,10,class_id_range,[1,2,6])
@@ -480,7 +526,12 @@ if __name__ == "__main__":
                         help='The location to save the simulation result', default=None)
     parser.add_argument("--keep_temp", action="store_true",
                     help='If set to True, the simulation will keep the temp hdf5 file')
+    parser.add_argument("--ambisonic_rir", action="store_true",
+                    help='If set to True, the simulation will only store ambisonic rir data')
+    parser.add_argument("--foa_mic_pos",type=str,
+                        help='The list of foa mic coordinates [xpos,ypos], e.g. [[1,4],[6,33],[3,87],...]', default="[]")
 
+    
     args = parser.parse_args()
 
     if args.dimension == '2d':
