@@ -16,13 +16,7 @@ def hdf5_to_ambisonic(hdf5_path,
 
     with h5py.File(hdf5_path,"r") as hf:
         
-        
-        print("hf[\"p\"].shape = ", hf["p"].shape)
-        
-        frames_num= hf["p"].shape[1]
-        # sub_frame_max = 100   #current best
-        # room_size = 256
-
+        # print("hf[\"p\"].shape = ", hf["p"].shape)
         
         mic_pos_arrange = []
         #get saving order of mic info
@@ -30,12 +24,11 @@ def hdf5_to_ambisonic(hdf5_path,
             pos_x = pos[0]
             pos_y = pos[1]
             
-            
             #each element in list is [x_pos,y_pos,mic_id,sample_point_id]
-            mic_pos_arrange.append([pos_x,pos_y+1,id,0])
-            mic_pos_arrange.append([pos_x-1,pos_y,id,1])
-            mic_pos_arrange.append([pos_x,pos_y-1,id,2])
-            mic_pos_arrange.append([pos_x+1,pos_y,id,3])
+            mic_pos_arrange.append([pos_y,pos_x+1,id,0])
+            mic_pos_arrange.append([pos_y-1,pos_x,id,1])
+            mic_pos_arrange.append([pos_y,pos_x-1,id,2])
+            mic_pos_arrange.append([pos_y+1,pos_x,id,3])
         
         
         #hdf5文件存储顺序为：采样点y坐标升序，同y时按照x坐标升序
@@ -44,32 +37,22 @@ def hdf5_to_ambisonic(hdf5_path,
         # print(mic_pos_arrange)
         
         output_list = [[None]*4]*len(mic_pos_list)
-        # print(output_list)
-        
+         
         sensor_data = hf["p"][0].copy()
-        
         for index in range(sensor_data.shape[1]):
-            
             arrange_data = mic_pos_arrange[index]
             sample_output = sensor_data[:,index]
-
-            # print("————————")
-            # print(arrange_data)
-            # print(sample_output.shape)
-            
             output_list[arrange_data[2]][arrange_data[3]] = sample_output
             
         output_list = np.array(output_list)
-        
-        # print(output_list)
-    
+
         mic_data = {
             "mic_data": output_list,
             "valid_mic": mic_valid_list
         }
         
         mic_data_output_path =  os.path.join(save_dir,save_filename_prefix + "_mic_data.pkl")
-        
+
         pickle.dump(mic_data, open(mic_data_output_path, "wb"))
         print("Write out mic data to {}".format(mic_data_output_path))
         
